@@ -1,4 +1,4 @@
-// Package idgen provides a generic, distributed ID generation library.
+// Package goflakeid provides a generic, distributed ID generation library.
 // Users define their own entity types and configurations when importing.
 package goflakeid
 
