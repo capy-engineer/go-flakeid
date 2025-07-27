@@ -16,7 +16,7 @@ A fast, minimal, distributed ID generator for Go, inspired by Twitter Snowflake.
 ## Installation
 
 ```bash
-go get github.com/yourusername/goflakeid
+go get github.com/capy-engineer/go-flakeid
 ```
 
 ## Quick Start
@@ -27,7 +27,7 @@ package main
 import (
     "fmt"
     "log"
-    "github.com/yourusername/goflakeid"
+    "github.com/capy-engineer/go-flakeid"
 )
 
 func main() {
