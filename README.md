@@ -1,387 +1,196 @@
-# GoFlakeID - Distributed ID Generator Library
+# go-flakeid
 
-A high-performance, decentralized ID generator library for Go applications. Generate unique, sortable IDs across distributed systems without central coordination.
+A fast, minimal, distributed ID generator for Go, inspired by Twitter Snowflake. Generate sortable 64-bit unique IDs with zero dependencies and lock-free performance.
 
 ## Features
 
-- 🚀 **High Performance**: Generate 1000+ IDs per millisecond per machine
-- 🔄 **Distributed**: No central coordination required
-- 📈 **Sortable**: Lexicographically sortable by generation time
-- 🛡️ **Thread-Safe**: Safe for concurrent use across multiple goroutines
-- 🎯 **Flexible**: Configurable entity types, encoders, and bit layouts
-- 🔧 **Pluggable**: Custom encoders, time providers, and configurations
-- 📦 **Zero Dependencies**: Pure Go implementation
+- **Lock-free ID generation** using atomic operations
+- **1M+ IDs per second** performance
+- **64-bit unique IDs** sortable by generation time
+- **Zero external dependencies**
+- **Customizable bit layouts** for different scales
+- **Auto machine ID** derivation from hostname/IP
+- **Thread-safe** with no mutex locks
+- **Configurable epoch** for extended timestamp range
 
 ## Installation
 
 ```bash
-go get github.com/hxuan190/goflakeid
+go get github.com/yourusername/goflakeid
 ```
 
 ## Quick Start
 
-### 1. Define Your Entity Types
-
 ```go
 package main
 
-import "github.com/hxuan190/goflakeid"
-
-// Define entity types for your domain
-const (
-    EntityUser     goflakeid.EntityType = 0
-    EntityProduct  goflakeid.EntityType = 1
-    EntityOrder    goflakeid.EntityType = 2
-    EntityPayment  goflakeid.EntityType = 3
+import (
+    "fmt"
+    "log"
+    "github.com/yourusername/goflakeid"
 )
-```
 
-### 2. Configure and Create Generator
-
-```go
 func main() {
-    // Configure generator with your entity types
-    config := goflakeid.NewConfig(1, 5). // datacenter=1, machine=5
-        AddEntityType(EntityUser, "user", "u").
-        AddEntityType(EntityProduct, "product", "p").
-        AddEntityType(EntityOrder, "order", "o").
-        AddEntityType(EntityPayment, "payment", "pay")
+    // Create configuration: regionID=1, appID=2, machineID=5
+    config := goflakeid.NewConfig(1, 2, 5)
     
+    // Create generator
     generator, err := goflakeid.NewGenerator(*config)
     if err != nil {
-        panic(err)
+        log.Fatal(err)
     }
     
-    // Generate IDs
-    userID, _ := generator.GeneratePublic(EntityUser)       // "u_9q81j1zBf"
-    productID, _ := generator.GeneratePublic(EntityProduct) // "p_8k72m3nXe"
+    // Generate ID
+    id, err := generator.Generate()
+    if err != nil {
+        log.Fatal(err)
+    }
     
-    fmt.Printf("User ID: %s\n", userID)
-    fmt.Printf("Product ID: %s\n", productID)
+    fmt.Printf("Generated ID: %d\n", id)
+    
+    // Decode ID components
+    components := generator.Decode(id)
+    fmt.Printf("Timestamp: %s\n", components.Timestamp)
+    fmt.Printf("Region: %d, App: %d, Machine: %d, Sequence: %d\n",
+        components.RegionID, components.AppID, components.MachineID, components.Sequence)
 }
 ```
 
-## ID Structure
+## Configuration
 
-The library generates 64-bit IDs with the following structure:
+### Default Bit Layout
 
-| Component | Bits | Description |
-|-----------|------|-------------|
-| Timestamp | 41   | Millisecond precision (69+ years) |
-| Entity Type | 5  | Up to 32 entity types |
-| Datacenter | 2   | Up to 4 datacenters |
-| Machine | 6      | Up to 64 machines per datacenter |
-| Sequence | 10     | Up to 1024 IDs/ms per machine |
+The default layout allocates 64 bits as: `42 + 4 + 3 + 5 + 10 = 64`
 
-## Usage Examples
+- **42 bits** for timestamp (≈139 years from epoch)
+- **4 bits** for region ID (16 regions)
+- **3 bits** for app ID (8 apps per region)
+- **5 bits** for machine ID (32 machines per app)
+- **10 bits** for sequence (1024 IDs per millisecond)
 
-### Basic Usage
+This supports:
+- 16 regions × 8 apps × 32 machines = 4,096 generators
+- 1,024 IDs per millisecond per generator
+- 4.2 billion IDs per second globally
 
-```go
-// Create generator
-config := goflakeid.NewConfig(1, 5).
-    AddEntityType(EntityUser, "user", "u").
-    AddEntityType(EntityPost, "post", "p")
-
-generator, _ := goflakeid.NewGenerator(*config)
-
-// Generate raw ID
-rawID, _ := generator.Generate(EntityUser)
-fmt.Printf("Raw ID: %d\n", rawID) // 1234567890123456
-
-// Generate public ID
-publicID, _ := generator.GeneratePublic(EntityUser)
-fmt.Printf("Public ID: %s\n", publicID) // "u_9q81j1zBf"
-```
-
-### Parsing IDs
+### Custom Configuration
 
 ```go
-// Parse public ID back to components
-rawID, entityType, _ := generator.DecodePublic("u_9q81j1zBf")
+// Custom epoch (recommended: your service launch date)
+config := goflakeid.NewConfig(1, 2, 5).
+    WithEpoch(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
 
-// Extract all components
-parsed := generator.Parse(rawID)
-fmt.Printf("Generated at: %s\n", parsed.Timestamp)
-fmt.Printf("Entity type: %d\n", parsed.EntityType)
-fmt.Printf("Datacenter: %d\n", parsed.DatacenterID)
-fmt.Printf("Machine: %d\n", parsed.MachineID)
-fmt.Printf("Sequence: %d\n", parsed.Sequence)
-```
+// Auto-derive machine ID from environment
+config = goflakeid.NewConfig(1, 2, 0).
+    WithAutoMachineID()
 
-### Music Platform Example
-
-```go
-// Define music platform entities
-const (
-    EntityTrack    goflakeid.EntityType = 0
-    EntityArtist   goflakeid.EntityType = 1
-    EntityAlbum    goflakeid.EntityType = 2
-    EntityPlaylist goflakeid.EntityType = 3
-    EntityUser     goflakeid.EntityType = 4
-    EntityConcert  goflakeid.EntityType = 5
-)
-
-func NewMusicgoflakeiderator(datacenter, machine uint8) *goflakeid.goflakeiderator {
-    config := goflakeid.NewConfig(datacenter, machine).
-        AddEntityType(EntityTrack, "track", "t", "Music track").
-        AddEntityType(EntityArtist, "artist", "a", "Recording artist").
-        AddEntityType(EntityAlbum, "album", "al", "Music album").
-        AddEntityType(EntityPlaylist, "playlist", "p", "User playlist").
-        AddEntityType(EntityUser, "user", "u", "Platform user").
-        AddEntityType(EntityConcert, "concert", "c", "Live concert")
-    
-    generator, _ := goflakeid.NewGenerator(*config)
-    return generator
-}
-
-// Usage
-musicGen := NewMusicgoflakeiderator(1, 5)
-trackID, _ := musicGen.GeneratePublic(EntityTrack)    // "t_9q81j1zBf"
-artistID, _ := musicGen.GeneratePublic(EntityArtist)  // "a_8k72m3nXe"
-```
-
-### E-commerce Platform Example
-
-```go
-const (
-    EntityProduct   goflakeid.EntityType = 0
-    EntityCustomer  goflakeid.EntityType = 1
-    EntityOrder     goflakeid.EntityType = 2
-    EntityPayment   goflakeid.EntityType = 3
-    EntityShipment  goflakeid.EntityType = 4
-    EntityReview    goflakeid.EntityType = 5
-)
-
-config := goflakeid.NewConfig(2, 10).
-    AddEntityType(EntityProduct, "product", "prd").
-    AddEntityType(EntityCustomer, "customer", "cst").
-    AddEntityType(EntityOrder, "order", "ord").
-    AddEntityType(EntityPayment, "payment", "pay").
-    AddEntityType(EntityShipment, "shipment", "shp").
-    AddEntityType(EntityReview, "review", "rev")
-
-ecommerceGen, _ := goflakeid.NewGenerator(*config)
-
-// Generate IDs
-productID, _ := ecommerceGen.GeneratePublic(EntityProduct)   // "prd_9q81j1zBf"
-orderID, _ := ecommerceGen.GeneratePublic(EntityOrder)       // "ord_8k72m3nXe"
-```
-
-## Advanced Configuration
-
-### Custom Epoch
-
-```go
-customEpoch := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
-
-config := goflakeid.NewConfig(1, 5).
-    SetEpoch(customEpoch).
-    AddEntityType(EntityUser, "user", "u")
-```
-
-### Custom Bit Layout
-
-```go
-// More entity types, less timestamp precision
+// Custom bit layout for different scale
 customLayout := goflakeid.BitLayout{
-    TimestampBits:  38,  // ~8.7 years from epoch
-    EntityTypeBits: 8,   // 256 entity types
-    DatacenterBits: 2,   // 4 datacenters
-    MachineBits:    6,   // 64 machines
-    SequenceBits:   10,  // 1024 IDs/ms
+    TimestampBits: 41,  // ≈69 years
+    RegionBits:    5,   // 32 regions
+    AppBits:       5,   // 32 apps
+    MachineBits:   8,   // 256 machines
+    SequenceBits:  5,   // 32 IDs/ms (lower throughput, more machines)
 }
 
-config := goflakeid.NewConfig(1, 5).
-    SetBitLayout(customLayout).
-    AddEntityType(EntityUser, "user", "u")
+config = goflakeid.NewConfig(1, 2, 5).
+    WithBitLayout(customLayout)
 ```
 
-### Custom Encoder
+## Advanced Usage
+
+### Batch Generation
 
 ```go
-// Use hexadecimal encoding instead of Base62
-config := goflakeid.NewConfig(1, 5).
-    SetEncoder(goflakeid.HexEncoder{}).
-    AddEntityType(EntityUser, "user", "u")
-
-generator, _ := goflakeid.NewGenerator(*config)
-userID, _ := generator.GeneratePublic(EntityUser) // "u_a1b2c3d4e5f6"
-```
-
-### Custom Base62 Alphabet
-
-```go
-// Custom alphabet (e.g., URL-safe)
-customAlphabet := "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-encoder := goflakeid.NewBase62Encoder(customAlphabet)
-
-config := goflakeid.NewConfig(1, 5).
-    SetEncoder(encoder).
-    AddEntityType(EntityUser, "user", "u")
-```
-
-## Batch Generation
-
-For high-throughput scenarios:
-
-```go
-// Generate 100 IDs in a batch
-userIDs, err := generator.GenerateBatch(EntityUser, 100)
+// Generate 100 IDs efficiently
+ids, err := generator.GenerateBatch(100)
 if err != nil {
-    panic(err)
+    log.Fatal(err)
 }
-
-fmt.Printf("Generated %d user IDs\n", len(userIDs))
 ```
 
-
-## Distributed Deployment
-
-### Multiple Datacenters
+### Machine ID Strategies
 
 ```go
-// Datacenter 1
-dc1Generator, _ := goflakeid.NewGenerator(*goflakeid.NewConfig(1, 5).AddEntityType(...))
+// Auto-derive from hostname/MAC address
+config := goflakeid.NewConfig(1, 2, 0).WithAutoMachineID()
 
-// Datacenter 2  
-dc2Generator, _ := goflakeid.NewGenerator(*goflakeid.NewConfig(2, 5).AddEntityType(...))
+// Derive from IP address
+machineID := goflakeid.MachineIDFromIP("192.168.1.100")
+config := goflakeid.NewConfig(1, 2, machineID)
 
-// IDs from different datacenters are guaranteed unique
+// Custom function
+config.MachineIDGen = func() uint8 {
+    // Your custom logic here
+    return uint8(os.Getpid() & 0x1F)
+}
 ```
 
-### Multiple Machines per Datacenter
+## Architecture
 
-```go
-// Machine 1 in datacenter 1
-machine1, _ := goflakeid.NewGenerator(*goflakeid.NewConfig(1, 1).AddEntityType(...))
+### ID Structure (64 bits)
 
-// Machine 2 in datacenter 1
-machine2, _ := goflakeid.NewGenerator(*goflakeid.NewConfig(1, 2).AddEntityType(...))
-
-// Each machine generates unique IDs
 ```
+|-------- 42 bits --------|-- 4 --|-- 3 --|-- 5 --|---- 10 ----|
+| timestamp (milliseconds) | region |  app  | machine | sequence |
+```
+
+### Lock-Free Algorithm
+
+The generator uses atomic Compare-And-Swap (CAS) operations to ensure thread safety without mutex locks:
+
+1. Pack timestamp and sequence into a single 64-bit state
+2. Use atomic CAS to update state
+3. Retry on contention (extremely rare)
+4. No mutex locks = better performance under load
 
 ## Best Practices
 
-### 1. Entity Type Management
+1. **Set epoch close to your service launch date** to maximize timestamp range
+2. **Use meaningful region/app IDs** for easier debugging
+3. **Monitor sequence numbers** in high-throughput scenarios
+4. **Use batch generation** for bulk operations
+5. **Configure bit layout** based on your scale requirements
 
+## Common Configurations
+
+### Small Scale (Single Region)
 ```go
-// Keep entity types in a separate package
-package entities
-
-import "github.com/hxuan190/goflakeid"
-
-const (
-    User     goflakeid.EntityType = 0
-    Product  goflakeid.EntityType = 1
-    Order    goflakeid.EntityType = 2
-    // ... add new types sequentially
-)
-
-// Provide factory function
-func Newgoflakeiderator(datacenter, machine uint8) *goflakeid.goflakeiderator {
-    config := goflakeid.NewConfig(datacenter, machine).
-        AddEntityType(User, "user", "u").
-        AddEntityType(Product, "product", "p").
-        AddEntityType(Order, "order", "o")
-    
-    generator, _ := goflakeid.NewGenerator(*config)
-    return generator
+// 41 timestamp + 10 machine + 13 sequence = 64 bits
+// Supports 1024 machines, 8192 IDs/ms each
+layout := goflakeid.BitLayout{
+    TimestampBits: 41,
+    RegionBits:    0,
+    AppBits:       0,
+    MachineBits:   10,
+    SequenceBits:  13,
 }
 ```
 
-### 2. Singleton Pattern
-
+### Multi-Region Scale
 ```go
-var (
-    generator *goflakeid.goflakeiderator
-    once      sync.Once
-)
-
-func Getgoflakeiderator() *goflakeid.goflakeiderator {
-    once.Do(func() {
-        // Initialize from config
-        datacenterID := getDatacenterID() // from env/config
-        machineID := getMachineID()       // from env/config
-        
-        generator = Newgoflakeiderator(datacenterID, machineID)
-    })
-    return generator
-}
+// Default layout: 42 + 4 + 3 + 5 + 10 = 64
+// 16 regions, 8 apps, 32 machines, 1024 IDs/ms
+config := goflakeid.NewConfig(regionID, appID, machineID)
 ```
 
-### 3. Error Handling
-
+### Extreme Scale
 ```go
-func CreateUser(name string) (string, error) {
-    userID, err := generator.GeneratePublic(EntityUser)
-    if err != nil {
-        return "", fmt.Errorf("failed to generate user ID: %w", err)
-    }
-    
-    // Use userID...
-    return userID, nil
-}
-```
-
-### 4. Configuration Management
-
-```go
-// config.yaml
-id_generator:
-  datacenter_id: 1
-  machine_id: 5
-  epoch: "2023-01-01T00:00:00Z"
-  encoder: "base62"
-
-// Load from config
-type Config struct {
-    goflakeiderator struct {
-        DatacenterID uint8     `yaml:"datacenter_id"`
-        MachineID    uint8     `yaml:"machine_id"`
-        Epoch        time.Time `yaml:"epoch"`
-        Encoder      string    `yaml:"encoder"`
-    } `yaml:"id_generator"`
-}
-```
-
-## Troubleshooting
-
-### Clock Issues
-
-```go
-// Handle clock backwards gracefully
-id, err := generator.Generate(EntityUser)
-if err != nil && strings.Contains(err.Error(), "clock moved backwards") {
-    // Log warning and retry
-    log.Warn("Clock moved backwards, retrying...")
-    time.Sleep(time.Millisecond)
-    id, err = generator.Generate(EntityUser)
-}
-```
-
-### High Load Scenarios
-
-```go
-// Use batch generation for bulk operations
-const batchSize = 100
-userIDs, err := generator.GenerateBatch(EntityUser, batchSize)
-if err != nil {
-    // Handle error
+// 40 timestamp + 8 region + 8 app + 8 sequence = 64 bits
+// 256 regions/apps, only 256 IDs/ms per machine
+layout := goflakeid.BitLayout{
+    TimestampBits: 40,  // ≈34 years
+    RegionBits:    8,   // 256 regions
+    AppBits:       8,   // 256 apps
+    MachineBits:   0,   // Encoded in app ID
+    SequenceBits:  8,   // 256 IDs/ms
 }
 ```
 
 ## Contributing
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## Acknowledgments
-
-- Inspired by Twitter's Snowflake ID generation algorithm
-- Designed for modern distributed systems and microservices
-- Built with performance and scalability in mind
+Contributions are welcome! Please ensure:
+- Zero external dependencies
+- Maintain lock-free performance
+- Add tests for new features
+- Update documentation
